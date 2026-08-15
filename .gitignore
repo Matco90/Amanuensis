@@ -1,0 +1,14 @@
+# Local application settings
+appsettings.json
+**/appsettings.json
+
+# .NET build output
+bin/
+obj/
+
+# Visual Studio workspace files
+.vs/
+
+# Local logs
+*.log
+log.txt
