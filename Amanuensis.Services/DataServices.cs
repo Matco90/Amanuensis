@@ -2,6 +2,7 @@
 using Amanuensis.Common.Container;
 using Amanuensis.Common.Enum;
 using Amanuensis.Common.Exceptions;
+using Amanuensis.Services.Contracts;
 using OpenAI.Audio;
 using SharpCompress.Common;
 using System.Reflection.Metadata;
@@ -11,22 +12,67 @@ namespace Amanuensis.Services
 {
     public class DataServices : ServiceBase
     {
-        SettingsControl settingsControl;
+        ISettingsService settingsControl;
         //GroqControl groqControl;
-        DeepgramControl deepgramControl;
-        AudioExtractionControl audioExtractionControl;
-        OllamaControl ollamaControl;
+        ITranscriptionService deepgramControl;
+        IAudioExtractionService audioExtractionControl;
+        ILLMService ollamaControl;
+
+
+        #region CONSTRUCTORS
 
         public DataServices()
         {
             settingsControl = new SettingsControl();
-            settings = settingsControl.ReadSettings();
+            settings = settingsControl.GetSettings();
 
             //groqControl = new GroqControl(settings);
             deepgramControl = new DeepgramControl(settings);
             audioExtractionControl = new AudioExtractionControl(settings);
             ollamaControl = new OllamaControl(settings);
         }
+
+        public DataServices(ISettingsService settingsService, ITranscriptionService transcriptionService, IAudioExtractionService audioExtractionService, ILLMService llmService)
+        {
+            if (settingsService != null)
+            {
+                settingsControl = settingsService;
+                settings = settingsControl.GetSettings();
+            }
+            else
+            {
+                throw new ArgumentNullException(nameof(settingsService));
+            }
+
+            if (transcriptionService != null)
+            {
+                deepgramControl = transcriptionService;
+            }
+            else
+            {
+                throw new ArgumentNullException(nameof(transcriptionService));
+            }
+
+            if (audioExtractionService != null)
+            {
+                audioExtractionControl = audioExtractionService;
+            }
+            else
+            {
+                throw new ArgumentNullException(nameof(audioExtractionService));
+            }
+
+            if (llmService != null)
+            {
+                ollamaControl = llmService;
+            }
+            else
+            {
+                throw new ArgumentNullException(nameof(llmService));
+            }
+        }
+
+        #endregion
 
         #region PUBLIC METHODS
 
@@ -84,7 +130,7 @@ namespace Amanuensis.Services
                     }
                     catch (Exception)
                     {
-                       //ignorato per non sovrascrivere l'eccezione originale
+                        //ignorato per non sovrascrivere l'eccezione originale
                     }
 
                 }

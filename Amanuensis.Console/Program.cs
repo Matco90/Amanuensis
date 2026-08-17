@@ -1,10 +1,23 @@
 ﻿using Amanuensis.Common;
+using Amanuensis.Common.Entities;
 using Amanuensis.Services;
+using Amanuensis.Services.Contracts;
+using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
+using Microsoft.IdentityModel.Tokens;
 using System.Diagnostics;
 
 string keyPressed;
+Settings settings;
+DataServices dataServices;
 
-DataServices dataServices = new DataServices();
+ISettingsService settingsService;
+ITranscriptionService transcriptionService;
+IAudioExtractionService audioExtractionService;
+ILLMService llmService;
+
+LoadClasses();
+
+dataServices = new DataServices(settingsService,transcriptionService, audioExtractionService,llmService);
 
 Console.WriteLine(Constants.logo);
 
@@ -52,3 +65,12 @@ Console.WriteLine();
 if (keyPressed.ToLower() == "y") text = await dataServices.ConvertIntoEmail(text);
 Console.WriteLine(text);
 
+void LoadClasses()
+{
+    settingsService = new SettingsControl();
+    settings = settingsService.GetSettings();
+
+    transcriptionService = new DeepgramControl(settings);
+    audioExtractionService = new AudioExtractionControl(settings);
+    llmService = new OllamaControl(settings);
+}

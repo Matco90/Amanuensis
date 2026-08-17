@@ -2,4 +2,5 @@
   <Project Path="Amanuensis.Common/Amanuensis.Common.csproj" Id="a77cc5a6-0a3d-4203-8182-8e658888e3d0" />
   <Project Path="Amanuensis.Console/Amanuensis.Console.csproj" />
   <Project Path="Amanuensis.Services/Amanuensis.Services.csproj" Id="037dab5c-a9fa-40a5-ada1-6d65222e2904" />
+  <Project Path="Tests/Amanuensis.Tests.csproj" />
 </Solution>

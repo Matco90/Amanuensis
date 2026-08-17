@@ -1,6 +1,7 @@
 ﻿using Amanuensis.Common.Entities;
 using Amanuensis.Common.Enum;
 using Amanuensis.Common.Exceptions;
+using Amanuensis.Services.Contracts;
 using Deepgram;
 using Deepgram.Clients.Interfaces.v1;
 using Deepgram.Models.Exceptions.v1;
@@ -13,7 +14,7 @@ using System.Text;
 
 namespace Amanuensis.Services
 {
-    public class DeepgramControl : ServiceBase
+    public class DeepgramControl : ServiceBase, ITranscriptionService
     {
         IListenRESTClient deepgramClient;
 

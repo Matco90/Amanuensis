@@ -8,10 +8,11 @@ using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using Amanuensis.Common.Exceptions;
+using Amanuensis.Services.Contracts;
 
 namespace Amanuensis.Services
 {
-    public class AudioExtractionControl : ServiceBase
+    public class AudioExtractionControl : ServiceBase, IAudioExtractionService
     {
 
         public AudioExtractionControl(Settings settings)

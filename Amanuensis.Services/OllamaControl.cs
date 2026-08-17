@@ -10,10 +10,11 @@ using Newtonsoft.Json;
 using JsonConvert = Newtonsoft.Json.JsonConvert;
 using Amanuensis.Common.Exceptions;
 using Amanuensis.Common.Enum;
+using Amanuensis.Services.Contracts;
 
 namespace Amanuensis.Services
 {
-    public class OllamaControl : ServiceBase
+    public class OllamaControl : ServiceBase, ILLMService
     {
 
         HttpClient httpClientOllamaLLM;
