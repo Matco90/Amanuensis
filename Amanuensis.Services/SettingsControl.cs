@@ -1,4 +1,5 @@
 ﻿using Amanuensis.Common.Entities;
+using Amanuensis.Common.Exceptions;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -32,9 +33,9 @@ namespace Amanuensis.Services
                 settings = settingsElement.Deserialize<Settings>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new Settings();
 
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                throw;
+                throw new AmanuensisException(Common.Enum.AmanuensisErrorCode_Type.LoadSettingsError, "Errore durante il caricamento delle impostazioni", ex);
             }
 
             return settings;
@@ -52,9 +53,9 @@ namespace Amanuensis.Services
 
                 File.WriteAllText(jsonPath, jsonContent);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                throw;
+                throw new AmanuensisException(Common.Enum.AmanuensisErrorCode_Type.SaveSettingsError, "Errore durante il salvataggio delle impostazioni", ex);
             }
 
         }

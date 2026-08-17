@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
+using Amanuensis.Common.Exceptions;
 
 namespace Amanuensis.Services
 {
@@ -23,7 +24,7 @@ namespace Amanuensis.Services
 
             if (!Directory.Exists(nativeLibrariesPath))
             {
-                throw new DirectoryNotFoundException($"Librerie native FFmpeg non trovate: {nativeLibrariesPath}");
+                throw new AmanuensisException(AmanuensisErrorCode_Type.DirectoryNotFound, $"Librerie native FFmpeg non trovate: {nativeLibrariesPath}");
             }
 
             ffmpeg.RootPath = nativeLibrariesPath;
@@ -50,15 +51,17 @@ namespace Amanuensis.Services
             string audioFilePath = "";
             int result;
             long nextAudioPts = 0;
+            int audioStreamIndex;
+            bool extractionCompleted = false;
 
             try
             {
-                //recuper il contesto dove vengono inseriti i parametri del file video
+                //recupero il contesto dove vengono inseriti i parametri del file video
                 result = ffmpeg.avformat_open_input(&inputFormatContext, filePath, null, null);
 
                 if (result < 0)
                 {
-                    throw new InvalidOperationException($"FFmpeg non riesce ad aprire il file. Codice errore: {result}");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"FFmpeg non riesce ad aprire il file. Codice errore: {result}");
                 }
 
                 //verifico se il file è leggibile
@@ -66,21 +69,14 @@ namespace Amanuensis.Services
 
                 if (result < 0)
                 {
-                    throw new InvalidOperationException($"FFmpeg non riesce a leggere i flussi del file. Codice errore: {result}");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"FFmpeg non riesce a leggere i flussi del file. Codice errore: {result}");
                 }
 
-                // -> serve ad accedere al contenuto della struttura tramite un puntatore 
-                if (inputFormatContext->nb_streams == 0)
-                {
-                    throw new InvalidOperationException("Il file non contiene flussi multimediali.");
-                }
-
-                //recuperiamo l'indice dello stream audio stream audio
-                int audioStreamIndex = ffmpeg.av_find_best_stream(inputFormatContext, AVMediaType.AVMEDIA_TYPE_AUDIO, -1, -1, null, 0);
+                audioStreamIndex = GetAudioStreamIndex(inputFormatContext);
 
                 if (audioStreamIndex < 0)
                 {
-                    throw new InvalidOperationException($"Il file non contiene una traccia audio utilizzabile. Codice errore: {audioStreamIndex}");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioTrackNotFound, $"Il file non contiene una traccia audio utilizzabile. Codice errore: {audioStreamIndex}");
                 }
 
                 //recupero il puntatore alla traccia audio
@@ -88,7 +84,7 @@ namespace Amanuensis.Services
 
                 if (audioStream == null)
                 {
-                    throw new InvalidOperationException("Impossibile recuperare lo stream audio.");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, "Impossibile recuperare lo stream audio.");
                 }
 
                 //recupero il puntatore ai paramteri del codec
@@ -96,12 +92,12 @@ namespace Amanuensis.Services
 
                 if (audioCodecParameters == null)
                 {
-                    throw new InvalidOperationException("Impossibile recuperare i parametri della traccia audio.");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, "Impossibile recuperare i parametri della traccia audio.");
                 }
 
                 if (audioCodecParameters->codec_type != AVMediaType.AVMEDIA_TYPE_AUDIO)
                 {
-                    throw new InvalidOperationException("Lo stream selezionato non è di tipo audio.");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, "Lo stream selezionato non è di tipo audio.");
                 }
 
                 //cerco se esiste un decoder compatibile con la traccia, se lo trova restituisce il puntatore al codec
@@ -109,7 +105,7 @@ namespace Amanuensis.Services
 
                 if (audioDecoder == null)
                 {
-                    throw new InvalidOperationException($"Nessun decoder disponibile per il codec audio {audioCodecParameters->codec_id}.");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.UnsupportedFileFormat, $"Nessun decoder disponibile per il codec audio {audioCodecParameters->codec_id}.");
                 }
 
                 //carico il contesto del decoder audio
@@ -117,7 +113,7 @@ namespace Amanuensis.Services
 
                 if (audioDecoderContext == null)
                 {
-                    throw new InvalidOperationException("Impossibile allocare il contesto del decoder audio.");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, "Impossibile allocare il contesto del decoder audio.");
                 }
 
                 //configuro il codec con i parametri letti
@@ -125,7 +121,7 @@ namespace Amanuensis.Services
 
                 if (result < 0)
                 {
-                    throw new InvalidOperationException($"Impossibile configurare il decoder audio. Codice errore: {result}");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile configurare il decoder audio. Codice errore: {result}");
                 }
 
                 //recupera il parametro time base
@@ -136,7 +132,7 @@ namespace Amanuensis.Services
 
                 if (result < 0)
                 {
-                    throw new InvalidOperationException($"Impossibile aprire il decoder audio. Codice errore: {result}");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile aprire il decoder audio. Codice errore: {result}");
                 }
 
                 string fileExtension = outputFormat == AudioOutputFormat.Mp3 ? "mp3" : "wav";
@@ -149,7 +145,7 @@ namespace Amanuensis.Services
 
                 if (result < 0 || outputFormatContext == null)
                 {
-                    throw new InvalidOperationException($"Impossibile creare il contenitore {outputFormat}. Codice errore: {result}");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile creare il contenitore {outputFormat}. Codice errore: {result}");
                 }
 
                 audioEncoderContext = CreateAudioEncoderContext(outputFormat);
@@ -171,7 +167,7 @@ namespace Amanuensis.Services
 
                 if (packet == null)
                 {
-                    throw new InvalidOperationException("Impossibile allocare il pacchetto audio.");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, "Impossibile allocare il pacchetto audio.");
                 }
 
                 // Pacchetto che riceverà i dati prodotti dall'encoder.
@@ -179,7 +175,7 @@ namespace Amanuensis.Services
 
                 if (encodedPacket == null)
                 {
-                    throw new InvalidOperationException("Impossibile allocare il pacchetto audio codificato.");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, "Impossibile allocare il pacchetto audio codificato.");
                 }
 
                 decodedFrame = ConvertAllAudioPacketsFromFrame(inputFormatContext, packet, audioDecoderContext, audioStreamIndex, audioEncoderContext, resamplerContext, convertedFrame, audioFifo, encoderFrame, encodedPacket, outputFormatContext, outputAudioStream, ref nextAudioPts);
@@ -192,8 +188,10 @@ namespace Amanuensis.Services
 
                 if (result < 0)
                 {
-                    throw new InvalidOperationException($"Impossibile finalizzare il file {outputFormat}. Codice errore: {result}");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile finalizzare il file {outputFormat}. Codice errore: {result}");
                 }
+
+                extractionCompleted = true;
 
             }
             finally
@@ -267,6 +265,21 @@ namespace Amanuensis.Services
                 {
                     ffmpeg.avformat_close_input(&inputFormatContext);
                 }
+
+
+                // Poi elimina esclusivamente il file incompleto.
+                if (!extractionCompleted && !string.IsNullOrWhiteSpace(audioFilePath) && File.Exists(audioFilePath))
+                {
+                    try
+                    {
+                        File.Delete(audioFilePath);
+                    }
+                    catch (Exception)
+                    {
+
+                    }
+
+                }
             }
 
             return audioFilePath;
@@ -284,7 +297,7 @@ namespace Amanuensis.Services
             //check if the system architecture is x64
             if (RuntimeInformation.ProcessArchitecture != Architecture.X64)
             {
-                throw new PlatformNotSupportedException($"Architettura non supportata: {RuntimeInformation.ProcessArchitecture}");
+                throw new AmanuensisException(AmanuensisErrorCode_Type.PlatformNotSupported, $"Architettura non supportata: {RuntimeInformation.ProcessArchitecture}");
             }
 
             //find OS type
@@ -298,7 +311,7 @@ namespace Amanuensis.Services
             }
             else
             {
-                throw new PlatformNotSupportedException("Sistema operativo non supportato.");
+                throw new AmanuensisException(AmanuensisErrorCode_Type.PlatformNotSupported, "Sistema operativo non supportato.");
             }
 
             nativeLibrariesPath = Path.Combine(AppContext.BaseDirectory, "runtimes", osDirectory, "native");
@@ -320,7 +333,7 @@ namespace Amanuensis.Services
                 ex is EntryPointNotFoundException ||
                 ex is BadImageFormatException)
             {
-                throw new InvalidOperationException("Impossibile caricare le librerie native FFmpeg.", ex);
+                throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, "Impossibile caricare le librerie native FFmpeg.", ex);
             }
         }
 
@@ -339,7 +352,7 @@ namespace Amanuensis.Services
 
                 if (decodedFrame == null)
                 {
-                    throw new InvalidOperationException("Impossibile allocare il frame audio.");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, "Impossibile allocare il frame audio.");
                 }
 
                 //ciclo tutti i packet dei frame e tengo solo quelli audio
@@ -355,7 +368,7 @@ namespace Amanuensis.Services
 
                         if (sendResult < 0)
                         {
-                            throw new InvalidOperationException($"Errore nell'invio del pacchetto al decoder. Codice errore: {sendResult}");
+                            throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Errore nell'invio del pacchetto al decoder. Codice errore: {sendResult}");
                         }
 
                         // Un pacchetto può produrre zero, uno o più frame.
@@ -371,7 +384,7 @@ namespace Amanuensis.Services
 
                             if (receiveResult < 0)
                             {
-                                throw new InvalidOperationException($"Errore durante la decodifica audio. Codice errore: {receiveResult}");
+                                throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Errore durante la decodifica audio. Codice errore: {receiveResult}");
                             }
 
                             try
@@ -395,7 +408,7 @@ namespace Amanuensis.Services
 
                 if (result != ffmpeg.AVERROR_EOF)
                 {
-                    throw new InvalidOperationException($"Errore durante la lettura del file. Codice errore: {result}");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Errore durante la lettura del file. Codice errore: {result}");
                 }
 
                 // Segnala al decoder che non arriveranno altri pacchetti.
@@ -403,7 +416,7 @@ namespace Amanuensis.Services
 
                 if (result < 0 && result != ffmpeg.AVERROR_EOF)
                 {
-                    throw new InvalidOperationException($"Errore durante il flush del decoder. Codice errore: {result}");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Errore durante il flush del decoder. Codice errore: {result}");
                 }
 
                 // Recupera gli eventuali frame rimasti nel buffer del decoder.
@@ -415,12 +428,12 @@ namespace Amanuensis.Services
 
                     if (receiveResult == tryAgainError)
                     {
-                        throw new InvalidOperationException("Il decoder richiede altri pacchetti dopo il flush.");
+                        throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, "Il decoder richiede altri pacchetti dopo il flush.");
                     }
 
                     if (receiveResult < 0)
                     {
-                        throw new InvalidOperationException($"Errore durante lo svuotamento del decoder. Codice errore: {receiveResult}");
+                        throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Errore durante lo svuotamento del decoder. Codice errore: {receiveResult}");
                     }
 
                     try
@@ -438,7 +451,7 @@ namespace Amanuensis.Services
 
                 if (decodedFrameCount == 0)
                 {
-                    throw new InvalidOperationException("Il decoder non ha prodotto alcun frame audio.");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, "Il decoder non ha prodotto alcun frame audio.");
                 }
 
                 // Recupera gli ultimi campioni trattenuti dal resampler.
@@ -475,14 +488,14 @@ namespace Amanuensis.Services
 
                 if (audioEncoder == null)
                 {
-                    throw new InvalidOperationException($"Encoder {encoderName} non disponibile.");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Encoder {encoderName} non disponibile.");
                 }
 
                 audioEncoderContext = ffmpeg.avcodec_alloc_context3(audioEncoder);
 
                 if (audioEncoderContext == null)
                 {
-                    throw new InvalidOperationException($"Impossibile allocare il contesto dell'encoder {outputFormat}.");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile allocare il contesto dell'encoder {outputFormat}.");
                 }
 
                 audioEncoderContext->sample_rate = 16000;
@@ -506,7 +519,7 @@ namespace Amanuensis.Services
 
                 if (result < 0)
                 {
-                    throw new InvalidOperationException($"Impossibile aprire l'encoder {outputFormat}. Codice errore: {result}");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile aprire l'encoder {outputFormat}. Codice errore: {result}");
                 }
 
             }
@@ -537,7 +550,7 @@ namespace Amanuensis.Services
 
                 if (result < 0 || resamplerContext == null)
                 {
-                    throw new InvalidOperationException(
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed,
                         $"Impossibile configurare il ricampionatore audio. Codice errore: {result}");
                 }
 
@@ -546,7 +559,7 @@ namespace Amanuensis.Services
 
                 if (result < 0)
                 {
-                    throw new InvalidOperationException($"Impossibile inizializzare il ricampionatore audio. Codice errore: {result}");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile inizializzare il ricampionatore audio. Codice errore: {result}");
                 }
             }
             catch (Exception)
@@ -573,7 +586,7 @@ namespace Amanuensis.Services
 
                 if (convertedFrame == null)
                 {
-                    throw new InvalidOperationException("Impossibile allocare il frame audio convertito.");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, "Impossibile allocare il frame audio convertito.");
                 }
 
                 convertedFrame->format = (int)audioEncoderContext->sample_fmt;
@@ -584,7 +597,7 @@ namespace Amanuensis.Services
 
                 if (result < 0)
                 {
-                    throw new InvalidOperationException($"Impossibile configurare i canali del frame convertito. Codice errore: {result}");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile configurare i canali del frame convertito. Codice errore: {result}");
                 }
             }
             catch (Exception)
@@ -616,7 +629,7 @@ namespace Amanuensis.Services
 
             if (audioFifo == null)
             {
-                throw new InvalidOperationException("Impossibile allocare la coda FIFO audio.");
+                throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, "Impossibile allocare la coda FIFO audio.");
             }
 
             return audioFifo;
@@ -641,7 +654,7 @@ namespace Amanuensis.Services
 
             if (result < 0)
             {
-                throw new InvalidOperationException($"Impossibile configurare i canali del frame convertito. Codice errore: {result}");
+                throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile configurare i canali del frame convertito. Codice errore: {result}");
             }
 
             // Calcola lo spazio massimo necessario per il risultato.
@@ -649,7 +662,7 @@ namespace Amanuensis.Services
 
             if (outputSampleCapacity < 0)
             {
-                throw new InvalidOperationException($"Impossibile calcolare i campioni convertiti. Codice errore: {outputSampleCapacity}");
+                throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile calcolare i campioni convertiti. Codice errore: {outputSampleCapacity}");
             }
 
             if (outputSampleCapacity == 0) return;
@@ -661,7 +674,7 @@ namespace Amanuensis.Services
 
             if (result < 0)
             {
-                throw new InvalidOperationException($"Impossibile allocare il buffer del frame convertito. Codice errore: {result}");
+                throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile allocare il buffer del frame convertito. Codice errore: {result}");
             }
 
             // Converte formato, frequenza e numero di canali.
@@ -669,7 +682,7 @@ namespace Amanuensis.Services
 
             if (convertedSampleCount < 0)
             {
-                throw new InvalidOperationException($"Errore durante la conversione audio. Codice errore: {convertedSampleCount}");
+                throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Errore durante la conversione audio. Codice errore: {convertedSampleCount}");
             }
 
             if (convertedSampleCount == 0) return;
@@ -683,7 +696,7 @@ namespace Amanuensis.Services
 
             if (result < 0)
             {
-                throw new InvalidOperationException($"Impossibile espandere la FIFO audio. Codice errore: {result}");
+                throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile espandere la FIFO audio. Codice errore: {result}");
             }
 
             // Copia i campioni convertiti nella FIFO.
@@ -691,7 +704,7 @@ namespace Amanuensis.Services
 
             if (writtenSampleCount != convertedSampleCount)
             {
-                throw new InvalidOperationException($"Scrittura incompleta nella FIFO: {writtenSampleCount} campioni scritti su {convertedSampleCount}.");
+                throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Scrittura incompleta nella FIFO: {writtenSampleCount} campioni scritti su {convertedSampleCount}.");
             }
         }
 
@@ -709,7 +722,7 @@ namespace Amanuensis.Services
 
                 if (outputSampleCapacity < 0)
                 {
-                    throw new InvalidOperationException($"Impossibile calcolare i campioni rimasti nel resampler. Codice errore: {outputSampleCapacity}");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile calcolare i campioni rimasti nel resampler. Codice errore: {outputSampleCapacity}");
                 }
 
                 if (outputSampleCapacity == 0) break;
@@ -723,7 +736,7 @@ namespace Amanuensis.Services
 
                 if (result < 0)
                 {
-                    throw new InvalidOperationException($"Impossibile configurare i canali del frame di flush. Codice errore: {result}");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile configurare i canali del frame di flush. Codice errore: {result}");
                 }
 
                 convertedFrame->nb_samples = outputSampleCapacity;
@@ -732,7 +745,7 @@ namespace Amanuensis.Services
 
                 if (result < 0)
                 {
-                    throw new InvalidOperationException($"Impossibile allocare il buffer per il flush del resampler. Codice errore: {result}");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile allocare il buffer per il flush del resampler. Codice errore: {result}");
                 }
 
                 // Input nullo: chiede al resampler di restituire i campioni trattenuti.
@@ -740,7 +753,7 @@ namespace Amanuensis.Services
 
                 if (convertedSampleCount < 0)
                 {
-                    throw new InvalidOperationException($"Errore durante il flush del resampler. Codice errore: {convertedSampleCount}");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Errore durante il flush del resampler. Codice errore: {convertedSampleCount}");
                 }
 
                 if (convertedSampleCount == 0) break;
@@ -753,14 +766,14 @@ namespace Amanuensis.Services
 
                 if (result < 0)
                 {
-                    throw new InvalidOperationException($"Impossibile espandere la FIFO durante il flush. Codice errore: {result}");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile espandere la FIFO durante il flush. Codice errore: {result}");
                 }
 
                 writtenSampleCount = ffmpeg.av_audio_fifo_write(audioFifo, (void**)convertedFrame->extended_data, convertedSampleCount);
 
                 if (writtenSampleCount != convertedSampleCount)
                 {
-                    throw new InvalidOperationException($"Scrittura incompleta nella FIFO durante il flush: {writtenSampleCount} campioni scritti su {convertedSampleCount}.");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Scrittura incompleta nella FIFO durante il flush: {writtenSampleCount} campioni scritti su {convertedSampleCount}.");
                 }
             }
         }
@@ -776,7 +789,7 @@ namespace Amanuensis.Services
 
                 if (encoderFrame == null)
                 {
-                    throw new InvalidOperationException("Impossibile allocare il frame dell'encoder.");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, "Impossibile allocare il frame dell'encoder.");
                 }
 
                 encoderFrame->format = (int)audioEncoderContext->sample_fmt;
@@ -789,14 +802,14 @@ namespace Amanuensis.Services
 
                 if (result < 0)
                 {
-                    throw new InvalidOperationException($"Impossibile configurare i canali del frame dell'encoder. Codice errore: {result}");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile configurare i canali del frame dell'encoder. Codice errore: {result}");
                 }
 
                 result = ffmpeg.av_frame_get_buffer(encoderFrame, 0);
 
                 if (result < 0)
                 {
-                    throw new InvalidOperationException($"Impossibile allocare il buffer del frame dell'encoder. Codice errore: {result}");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile allocare il buffer del frame dell'encoder. Codice errore: {result}");
                 }
             }
             catch
@@ -829,14 +842,14 @@ namespace Amanuensis.Services
 
             if (result < 0)
             {
-                throw new InvalidOperationException($"Impossibile rendere scrivibile il frame dell'encoder. Codice errore: {result}");
+                throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile rendere scrivibile il frame dell'encoder. Codice errore: {result}");
             }
 
             int readSampleCount = ffmpeg.av_audio_fifo_read(audioFifo, (void**)encoderFrame->extended_data, requiredSampleCount);
 
             if (readSampleCount != requiredSampleCount)
             {
-                throw new InvalidOperationException($"Lettura incompleta dalla FIFO: {readSampleCount} campioni letti su {requiredSampleCount}.");
+                throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Lettura incompleta dalla FIFO: {readSampleCount} campioni letti su {requiredSampleCount}.");
             }
 
             encoderFrame->nb_samples = requiredSampleCount;
@@ -854,7 +867,7 @@ namespace Amanuensis.Services
 
             if (outputAudioStream == null)
             {
-                throw new InvalidOperationException("Impossibile creare lo stream audio MP3.");
+                throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, "Impossibile creare lo stream audio MP3.");
             }
 
             // Lo stream usa la stessa unità temporale dell'encoder.
@@ -865,7 +878,7 @@ namespace Amanuensis.Services
 
             if (result < 0)
             {
-                throw new InvalidOperationException($"Impossibile copiare i parametri dell'encoder nello stream MP3. Codice errore: {result}");
+                throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile copiare i parametri dell'encoder nello stream MP3. Codice errore: {result}");
             }
 
             return outputAudioStream;
@@ -882,7 +895,7 @@ namespace Amanuensis.Services
 
                 if (result < 0)
                 {
-                    throw new InvalidOperationException($"Impossibile aprire il file MP3 in scrittura. Codice errore: {result}");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile aprire il file MP3 in scrittura. Codice errore: {result}");
                 }
             }
 
@@ -890,7 +903,7 @@ namespace Amanuensis.Services
 
             if (result < 0)
             {
-                throw new InvalidOperationException($"Impossibile scrivere l'intestazione MP3. Codice errore: {result}");
+                throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile scrivere l'intestazione MP3. Codice errore: {result}");
             }
         }
 
@@ -903,7 +916,7 @@ namespace Amanuensis.Services
 
             if (result < 0)
             {
-                throw new InvalidOperationException($"Impossibile inviare il frame all'encoder MP3. Codice errore: {result}");
+                throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile inviare il frame all'encoder MP3. Codice errore: {result}");
             }
 
             // Un frame può produrre zero, uno o più pacchetti MP3.
@@ -915,7 +928,7 @@ namespace Amanuensis.Services
 
                 if (result < 0)
                 {
-                    throw new InvalidOperationException($"Errore durante la codifica MP3. Codice errore: {result}");
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Errore durante la codifica MP3. Codice errore: {result}");
                 }
 
                 try
@@ -930,7 +943,7 @@ namespace Amanuensis.Services
 
                     if (result < 0)
                     {
-                        throw new InvalidOperationException($"Errore durante la scrittura del pacchetto MP3. Codice errore: {result}");
+                        throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Errore durante la scrittura del pacchetto MP3. Codice errore: {result}");
                     }
                 }
                 finally
@@ -970,21 +983,21 @@ namespace Amanuensis.Services
 
             if (remainingSampleCount >= requiredSampleCount)
             {
-                throw new InvalidOperationException("La FIFO contiene ancora uno o più frame audio completi.");
+                throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, "La FIFO contiene ancora uno o più frame audio completi.");
             }
 
             result = ffmpeg.av_frame_make_writable(encoderFrame);
 
             if (result < 0)
             {
-                throw new InvalidOperationException($"Impossibile rendere scrivibile l'ultimo frame audio. Codice errore: {result}");
+                throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile rendere scrivibile l'ultimo frame audio. Codice errore: {result}");
             }
 
             readSampleCount = ffmpeg.av_audio_fifo_read(audioFifo, (void**)encoderFrame->extended_data, remainingSampleCount);
 
             if (readSampleCount != remainingSampleCount)
             {
-                throw new InvalidOperationException($"Lettura incompleta dell'ultimo frame: {readSampleCount} campioni letti su {remainingSampleCount}.");
+                throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Lettura incompleta dell'ultimo frame: {readSampleCount} campioni letti su {remainingSampleCount}.");
             }
 
             silenceSampleCount = requiredSampleCount - remainingSampleCount;
@@ -994,7 +1007,7 @@ namespace Amanuensis.Services
 
             if (result < 0)
             {
-                throw new InvalidOperationException($"Impossibile completare con silenzio l'ultimo frame MP3. Codice errore: {result}");
+                throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile completare con silenzio l'ultimo frame MP3. Codice errore: {result}");
             }
 
             encoderFrame->nb_samples = requiredSampleCount;
@@ -1003,6 +1016,20 @@ namespace Amanuensis.Services
             nextAudioPts += requiredSampleCount;
 
             EncodeFrameAndWritePackets(audioEncoderContext, encoderFrame, encodedPacket, outputFormatContext, outputAudioStream);
+        }
+
+        private unsafe int GetAudioStreamIndex(AVFormatContext* inputFormatContext)
+        {
+            int audioStreamIndex;
+
+            // -> serve ad accedere al contenuto della struttura tramite un puntatore 
+            if (inputFormatContext->nb_streams == 0)
+            {
+                throw new AmanuensisException(AmanuensisErrorCode_Type.AudioTrackNotFound, "Il file non contiene flussi multimediali.");
+            }
+
+            //recuperiamo l'indice dello stream audio stream audio
+            return audioStreamIndex = ffmpeg.av_find_best_stream(inputFormatContext, AVMediaType.AVMEDIA_TYPE_AUDIO, -1, -1, null, 0);
         }
         #endregion
     }
