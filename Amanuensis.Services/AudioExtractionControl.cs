@@ -1,14 +1,10 @@
-﻿using FFmpeg.AutoGen;
-using Microsoft.AspNetCore.Http.HttpResults;
-using Amanuensis.Common.Entities;
+﻿using Amanuensis.Common.Entities;
 using Amanuensis.Common.Enum;
-using System;
-using System.Collections.Generic;
-using System.Net.Sockets;
-using System.Runtime.InteropServices;
-using System.Text;
 using Amanuensis.Common.Exceptions;
 using Amanuensis.Services.Contracts;
+using FFmpeg.AutoGen;
+using System.Runtime.InteropServices;
+
 
 namespace Amanuensis.Services
 {
@@ -58,27 +54,9 @@ namespace Amanuensis.Services
             try
             {
                 //recupero il contesto dove vengono inseriti i parametri del file video
-                result = ffmpeg.avformat_open_input(&inputFormatContext, filePath, null, null);
-
-                if (result < 0)
-                {
-                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"FFmpeg non riesce ad aprire il file. Codice errore: {result}");
-                }
-
-                //verifico se il file è leggibile
-                result = ffmpeg.avformat_find_stream_info(inputFormatContext, null);
-
-                if (result < 0)
-                {
-                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"FFmpeg non riesce a leggere i flussi del file. Codice errore: {result}");
-                }
+                inputFormatContext = OpenInputFormatContext(filePath);
 
                 audioStreamIndex = GetAudioStreamIndex(inputFormatContext);
-
-                if (audioStreamIndex < 0)
-                {
-                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioTrackNotFound, $"Il file non contiene una traccia audio utilizzabile. Codice errore: {audioStreamIndex}");
-                }
 
                 //recupero il puntatore alla traccia audio
                 AVStream* audioStream = inputFormatContext->streams[audioStreamIndex];
@@ -1030,8 +1008,41 @@ namespace Amanuensis.Services
             }
 
             //recuperiamo l'indice dello stream audio stream audio
-            return audioStreamIndex = ffmpeg.av_find_best_stream(inputFormatContext, AVMediaType.AVMEDIA_TYPE_AUDIO, -1, -1, null, 0);
+            audioStreamIndex = ffmpeg.av_find_best_stream(inputFormatContext, AVMediaType.AVMEDIA_TYPE_AUDIO, -1, -1, null, 0);
+
+            if (audioStreamIndex < 0)
+            {
+                throw new AmanuensisException(AmanuensisErrorCode_Type.AudioTrackNotFound, $"Il file non contiene una traccia audio utilizzabile. Codice errore: {audioStreamIndex}");
+            }
+
+            return audioStreamIndex;
         }
+
+        private unsafe AVFormatContext* OpenInputFormatContext(string filePath)
+        {
+            AVFormatContext* inputFormatContext = null;
+            int result;
+
+            result = ffmpeg.avformat_open_input(&inputFormatContext, filePath, null, null);
+
+            if (result < 0)
+            {
+                throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"FFmpeg non riesce ad aprire il file. Codice errore: {result}");
+            }
+
+            //verifico se il file è leggibile
+            result = ffmpeg.avformat_find_stream_info(inputFormatContext, null);
+
+            if (result < 0)
+            {
+                ffmpeg.avformat_close_input(&inputFormatContext);
+
+                throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"FFmpeg non riesce a leggere i flussi del file. Codice errore: {result}");
+            }
+
+            return inputFormatContext;
+        }
+
         #endregion
     }
 }
