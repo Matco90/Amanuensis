@@ -58,61 +58,8 @@ namespace Amanuensis.Services
 
                 audioStreamIndex = GetAudioStreamIndex(inputFormatContext);
 
-                //recupero il puntatore alla traccia audio
-                AVStream* audioStream = inputFormatContext->streams[audioStreamIndex];
-
-                if (audioStream == null)
-                {
-                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, "Impossibile recuperare lo stream audio.");
-                }
-
-                //recupero il puntatore ai paramteri del codec
-                AVCodecParameters* audioCodecParameters = audioStream->codecpar;
-
-                if (audioCodecParameters == null)
-                {
-                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, "Impossibile recuperare i parametri della traccia audio.");
-                }
-
-                if (audioCodecParameters->codec_type != AVMediaType.AVMEDIA_TYPE_AUDIO)
-                {
-                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, "Lo stream selezionato non è di tipo audio.");
-                }
-
-                //cerco se esiste un decoder compatibile con la traccia, se lo trova restituisce il puntatore al codec
-                AVCodec* audioDecoder = ffmpeg.avcodec_find_decoder(audioCodecParameters->codec_id);
-
-                if (audioDecoder == null)
-                {
-                    throw new AmanuensisException(AmanuensisErrorCode_Type.UnsupportedFileFormat, $"Nessun decoder disponibile per il codec audio {audioCodecParameters->codec_id}.");
-                }
-
                 //carico il contesto del decoder audio
-                audioDecoderContext = ffmpeg.avcodec_alloc_context3(audioDecoder);
-
-                if (audioDecoderContext == null)
-                {
-                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, "Impossibile allocare il contesto del decoder audio.");
-                }
-
-                //configuro il codec con i parametri letti
-                result = ffmpeg.avcodec_parameters_to_context(audioDecoderContext, audioCodecParameters);
-
-                if (result < 0)
-                {
-                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile configurare il decoder audio. Codice errore: {result}");
-                }
-
-                //recupera il parametro time base
-                audioDecoderContext->pkt_timebase = audioStream->time_base;
-
-                //apre il codec
-                result = ffmpeg.avcodec_open2(audioDecoderContext, audioDecoder, null);
-
-                if (result < 0)
-                {
-                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile aprire il decoder audio. Codice errore: {result}");
-                }
+                audioDecoderContext = CreateAudioDecoderContext(inputFormatContext, audioStreamIndex);
 
                 string fileExtension = outputFormat == AudioOutputFormat.Mp3 ? "mp3" : "wav";
 
@@ -1041,6 +988,80 @@ namespace Amanuensis.Services
             }
 
             return inputFormatContext;
+        }
+
+        private unsafe AVCodecContext* CreateAudioDecoderContext(AVFormatContext* inputFormatContext, int audioStreamIndex)
+        {
+            AVCodec* audioDecoder = null;
+            AVCodecContext* audioDecoderContext = null;
+            AVCodecParameters* audioCodecParameters = null;
+            AVStream* audioStream = null;
+            int result;
+
+            try
+            {
+                //recupero il puntatore alla traccia audio
+                audioStream = inputFormatContext->streams[audioStreamIndex];
+
+                if (audioStream == null)
+                {
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, "Impossibile recuperare lo stream audio.");
+                }
+
+                //recupero il puntatore ai paramteri del codec
+                audioCodecParameters = audioStream->codecpar;
+
+                if (audioCodecParameters == null)
+                {
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, "Impossibile recuperare i parametri della traccia audio.");
+                }
+
+                if (audioCodecParameters->codec_type != AVMediaType.AVMEDIA_TYPE_AUDIO)
+                {
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, "Lo stream selezionato non è di tipo audio.");
+                }
+
+                //cerco se esiste un decoder compatibile con la traccia, se lo trova restituisce il puntatore al codec
+                audioDecoder = ffmpeg.avcodec_find_decoder(audioCodecParameters->codec_id);
+
+                if (audioDecoder == null)
+                {
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.UnsupportedFileFormat, $"Nessun decoder disponibile per il codec audio {audioCodecParameters->codec_id}.");
+                }
+
+                audioDecoderContext = ffmpeg.avcodec_alloc_context3(audioDecoder);
+
+                if (audioDecoderContext == null)
+                {
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, "Impossibile allocare il contesto del decoder audio.");
+                }
+
+                //configuro il codec con i parametri letti
+                result = ffmpeg.avcodec_parameters_to_context(audioDecoderContext, audioCodecParameters);
+
+                if (result < 0)
+                {
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile configurare il decoder audio. Codice errore: {result}");
+                }
+
+                //recupera il parametro time base
+                audioDecoderContext->pkt_timebase = audioStream->time_base;
+
+                //apre il codec
+                result = ffmpeg.avcodec_open2(audioDecoderContext, audioDecoder, null);
+
+                if (result < 0)
+                {
+                    throw new AmanuensisException(AmanuensisErrorCode_Type.AudioExtractionFailed, $"Impossibile aprire il decoder audio. Codice errore: {result}");
+                }
+            }
+            catch (Exception)
+            {
+                ffmpeg.avcodec_free_context(&audioDecoderContext);
+                throw;
+            }
+
+            return audioDecoderContext;
         }
 
         #endregion
