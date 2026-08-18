@@ -948,7 +948,7 @@ namespace Amanuensis.Services
         {
             int audioStreamIndex;
 
-            // -> serve ad accedere al contenuto della struttura tramite un puntatore 
+            // -> serve ad accedere al contenuto della struttura tramite un puntatore
             if (inputFormatContext->nb_streams == 0)
             {
                 throw new AmanuensisException(AmanuensisErrorCode_Type.AudioTrackNotFound, "Il file non contiene flussi multimediali.");
