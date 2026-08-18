@@ -12,11 +12,11 @@ namespace Amanuensis.Tests.Fakes
         public AudioOutputFormat? ReceivedOutputFormat { get; private set; }
         public int CalledCount { get; private set; }
 
-        private string extractedAudioFilePath;
+        public string ExtractedAudioFilePath { get; private set; }
 
         public FakeAudioExtractionService(string extractedAudioFilePath = "")
         {
-            this.extractedAudioFilePath = extractedAudioFilePath;
+            this.ExtractedAudioFilePath = extractedAudioFilePath;
         }
 
         public string ExtractAudio(string filePath, AudioOutputFormat outputFormat = AudioOutputFormat.Mp3)
@@ -25,7 +25,7 @@ namespace Amanuensis.Tests.Fakes
             ReceivedFilePath = filePath;
             ReceivedOutputFormat = outputFormat;
 
-            return extractedAudioFilePath;
+            return ExtractedAudioFilePath;
         }
     }
 }

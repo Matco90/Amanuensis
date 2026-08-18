@@ -137,5 +137,57 @@ namespace Tests
                 File.Delete(filePath);
             }
         }
+
+        [Fact]
+        public async Task TranscriptAudioFromFile_WithVideoFile_TranscribesAndOptimizesText()
+        {
+            // Arrange
+            const string rawTranscription = "testo grezzo";
+            const string optimizedTranscription = "testo revisionato";
+
+            FakeSettingsService settingsService;
+            FakeTranscriptionService transcriptionService;
+            FakeAudioExtractionService audioExtractionService;
+            FakeLLMService llmService;
+            DataServices dataServices;
+
+            string filePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.mp4");
+            await File.WriteAllBytesAsync(filePath, Array.Empty<byte>());
+
+            string extractedFilePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.mp3");
+            await File.WriteAllBytesAsync(extractedFilePath, Array.Empty<byte>());
+
+            try
+            {
+                settingsService = new FakeSettingsService();
+
+                transcriptionService = new FakeTranscriptionService(rawTranscription);
+
+                audioExtractionService = new FakeAudioExtractionService(extractedFilePath);
+
+                llmService = new FakeLLMService(optimizedTranscription);
+
+                dataServices = new DataServices(settingsService, transcriptionService, audioExtractionService, llmService);
+
+                // Act
+                string result = await dataServices.TranscriptAudioFromFile(filePath);
+
+                // Assert
+                Assert.Equal(optimizedTranscription, result);
+                Assert.Equal(filePath, audioExtractionService.ReceivedFilePath);
+                Assert.Equal(AudioOutputFormat.Mp3, audioExtractionService.ReceivedOutputFormat);
+                Assert.Equal(1, audioExtractionService.CalledCount);
+                Assert.Equal(extractedFilePath, audioExtractionService.ExtractedAudioFilePath);
+                Assert.Equal(extractedFilePath, transcriptionService.ReceivedFilePath);
+                Assert.Equal(rawTranscription, llmService.ReceivedUserPrompt);
+                Assert.False(File.Exists(extractedFilePath));
+
+            }
+            finally
+            {
+                File.Delete(filePath);
+                File.Delete(extractedFilePath);
+            }
+        }
     }
 }
