@@ -1,11 +1,9 @@
 ﻿using Amanuensis.Common;
 using Amanuensis.Common.Container;
+using Amanuensis.Common.Entities;
 using Amanuensis.Common.Enum;
 using Amanuensis.Common.Exceptions;
 using Amanuensis.Services.Contracts;
-using OpenAI.Audio;
-using SharpCompress.Common;
-using System.Reflection.Metadata;
 using Constants = Amanuensis.Common.Constants;
 
 namespace Amanuensis.Services
@@ -76,28 +74,60 @@ namespace Amanuensis.Services
 
         #region PUBLIC METHODS
 
-        public async Task<string> TranscriptAudioFromFile(string filePath)
+        public async Task<TranscriptionResult> TranscriptAudioFromFile(string filePath)
         {
+            TranscriptionResult result = new TranscriptionResult() { Transcription = "", Status = OperationStatus_Type.Done };
             string transcription = "";
-
+            string optimizedTranscription = "";
             try
             {
-                CheckFile(filePath);
+                try
+                {
+                    CheckFile(filePath);
+                }
+                catch (AmanuensisException ex)
+                {
+                    result.ErrorCode = ex.ErrorCode;
+                    result.Status = OperationStatus_Type.Error;
 
-                //trascrizione audio
-                transcription = await ConvertSpeechToText(filePath);
+                    return result;
+                }
 
-                //ottimizzazione testo con AI
-                transcription = await OptimizeAudioTranscription(transcription);
+                try
+                {
+                    //trascrizione audio
+                    transcription = await ConvertSpeechToText(filePath);
+                }
+                catch (AmanuensisException ex)
+                {
+                    result.ErrorCode = ex.ErrorCode;
+                    result.Status = OperationStatus_Type.Error;
+
+                    return result;
+                }
+
+                try
+                {
+                    //ottimizzazione testo con AI
+                    optimizedTranscription = await OptimizeAudioTranscription(transcription);
+
+                    if (!string.IsNullOrWhiteSpace(optimizedTranscription)) transcription = optimizedTranscription;
+                }
+                catch (AmanuensisException ex)
+                {
+                    result.ErrorCode = ex.ErrorCode;
+                    result.Status = OperationStatus_Type.PartiallyDone;
+                }
 
             }
             catch (Exception)
             {
-
                 throw;
             }
 
-            return transcription;
+            result.Transcription = transcription;
+
+            return result;
         }
 
         public async Task<string> ConvertSpeechToText(string filePath)
@@ -132,7 +162,6 @@ namespace Amanuensis.Services
                     {
                         //ignorato per non sovrascrivere l'eccezione originale
                     }
-
                 }
 
                 throw;

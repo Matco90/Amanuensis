@@ -1,4 +1,5 @@
-﻿using Amanuensis.Common.Enum;
+﻿using Amanuensis.Common.Entities;
+using Amanuensis.Common.Enum;
 using Amanuensis.Common.Exceptions;
 using Amanuensis.Services;
 using Amanuensis.Tests.Fakes;
@@ -37,10 +38,12 @@ namespace Tests
                 dataServices = new DataServices(settingsService, transcriptionService, audioExtractionService, llmService);
 
                 // Act
-                string result = await dataServices.TranscriptAudioFromFile(filePath);
+                TranscriptionResult result = await dataServices.TranscriptAudioFromFile(filePath);
 
                 // Assert
-                Assert.Equal(optimizedTranscription, result);
+                Assert.Equal(optimizedTranscription, result.Transcription);
+                Assert.Equal(OperationStatus_Type.Done, result.Status);
+                Assert.Null(result.ErrorCode);
                 Assert.Equal(filePath, transcriptionService.ReceivedFilePath);
                 Assert.Equal(rawTranscription, llmService.ReceivedUserPrompt);
                 Assert.Equal(0, audioExtractionService.CalledCount);
@@ -52,7 +55,7 @@ namespace Tests
         }
 
         [Fact]
-        public async Task ExceptionPropagation_Transcription()
+        public async Task TranscriptAudioFromFile_WhenTranscriptionFails_ReturnsErrorResult()
         {
             // Arrange
             const string rawTranscription = "testo grezzo";
@@ -81,11 +84,12 @@ namespace Tests
                 dataServices = new DataServices(settingsService, transcriptionService, audioExtractionService, llmService);
 
                 // Act
-                AmanuensisException exception = await Assert.ThrowsAsync<AmanuensisException>(() => dataServices.TranscriptAudioFromFile(filePath));
+                TranscriptionResult transcriptionResult = await dataServices.TranscriptAudioFromFile(filePath);
 
                 // Assert
-
-                Assert.Equal(AmanuensisErrorCode_Type.ProviderUnavailable, exception.ErrorCode);
+                Assert.Equal(string.Empty, transcriptionResult.Transcription);
+                Assert.Equal(OperationStatus_Type.Error, transcriptionResult.Status);
+                Assert.Equal(AmanuensisErrorCode_Type.ProviderUnavailable, transcriptionResult.ErrorCode);
                 Assert.Null(llmService.ReceivedUserPrompt);
                 Assert.Equal(0, audioExtractionService.CalledCount);
             }
@@ -96,7 +100,7 @@ namespace Tests
         }
 
         [Fact]
-        public async Task ExceptionPropagation_Optimization()
+        public async Task TranscriptAudioFromFile_WhenOptimizationFails_ReturnsPartialResult()
         {
             // Arrange
             const string rawTranscription = "testo grezzo";
@@ -125,10 +129,12 @@ namespace Tests
                 dataServices = new DataServices(settingsService, transcriptionService, audioExtractionService, llmService);
 
                 // Act
-                AmanuensisException exception = await Assert.ThrowsAsync<AmanuensisException>(() => dataServices.TranscriptAudioFromFile(filePath));
+                TranscriptionResult transcriptionResult = await dataServices.TranscriptAudioFromFile(filePath);
 
                 // Assert
-                Assert.Equal(AmanuensisErrorCode_Type.ProviderUnavailable, exception.ErrorCode);
+                Assert.Equal(rawTranscription, transcriptionResult.Transcription);
+                Assert.Equal(OperationStatus_Type.PartiallyDone, transcriptionResult.Status);
+                Assert.Equal(AmanuensisErrorCode_Type.ProviderUnavailable, transcriptionResult.ErrorCode);
                 Assert.Equal(filePath, transcriptionService.ReceivedFilePath);
                 Assert.Equal(0, audioExtractionService.CalledCount);
             }
@@ -170,10 +176,12 @@ namespace Tests
                 dataServices = new DataServices(settingsService, transcriptionService, audioExtractionService, llmService);
 
                 // Act
-                string result = await dataServices.TranscriptAudioFromFile(filePath);
+                TranscriptionResult result = await dataServices.TranscriptAudioFromFile(filePath);
 
                 // Assert
-                Assert.Equal(optimizedTranscription, result);
+                Assert.Equal(optimizedTranscription, result.Transcription);
+                Assert.Equal(OperationStatus_Type.Done, result.Status);
+                Assert.Null(result.ErrorCode);
                 Assert.Equal(filePath, audioExtractionService.ReceivedFilePath);
                 Assert.Equal(AudioOutputFormat.Mp3, audioExtractionService.ReceivedOutputFormat);
                 Assert.Equal(1, audioExtractionService.CalledCount);
@@ -187,6 +195,41 @@ namespace Tests
             {
                 File.Delete(filePath);
                 File.Delete(extractedFilePath);
+            }
+        }
+
+        [Fact]
+        public async Task TranscriptAudioFromFile_WithUnsupportedFileFormat_ReturnsErrorResult()
+        {
+            // Arrange
+            const string rawTranscription = "testo grezzo";
+            const string optimizedTranscription = "testo revisionato";
+
+            FakeSettingsService settingsService = new FakeSettingsService();
+            FakeTranscriptionService transcriptionService = new FakeTranscriptionService(rawTranscription);
+            FakeAudioExtractionService audioExtractionService = new FakeAudioExtractionService();
+            FakeLLMService llmService = new FakeLLMService(optimizedTranscription);
+            DataServices dataServices = new DataServices(settingsService, transcriptionService, audioExtractionService, llmService);
+
+            string filePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.txt");
+            await File.WriteAllBytesAsync(filePath, Array.Empty<byte>());
+
+            try
+            {
+                // Act
+                TranscriptionResult result = await dataServices.TranscriptAudioFromFile(filePath);
+
+                // Assert
+                Assert.Equal(string.Empty, result.Transcription);
+                Assert.Equal(OperationStatus_Type.Error, result.Status);
+                Assert.Equal(AmanuensisErrorCode_Type.UnsupportedFileFormat, result.ErrorCode);
+                Assert.Null(transcriptionService.ReceivedFilePath);
+                Assert.Null(llmService.ReceivedUserPrompt);
+                Assert.Equal(0, audioExtractionService.CalledCount);
+            }
+            finally
+            {
+                File.Delete(filePath);
             }
         }
     }
